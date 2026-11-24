@@ -1,20 +1,20 @@
 #!/bin/bash
-#SBATCH -A p31535
+#SBATCH -A p32095
 #SBATCH -p gengpu
 #SBATCH --gres=gpu:h100:1
 #SBATCH -t 48:00:00
 #SBATCH --mem=72G
-#SBATCH --array=1-2
+#SBATCH --array=1-12
 #SBATCH -N 1
 #SBATCH -n 16
 #SBATCH --job-name=basecalling
-#SBATCH -o /projects/b1042/Gate_Lab/boles/sc_lr/logs/%x_%A_%a.log
+#SBATCH -o /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans/logs/%x_%A_%a.log
 
-cd /projects/b1042/Gate_Lab/boles/sc_lr
+cd /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans
 
 SAMPLE=$(ls pod5s | sed -n "${SLURM_ARRAY_TASK_ID}p")
 POD5_DIR=$(ls "pod5s/${SAMPLE}")
-OUTPUT_DIR="fastqs"
+OUTPUT_DIR="basecalled"
 DORADO_VERSION="/projects/b1169/jackie/software/dorado-0.9.0-linux-x64/bin/dorado"
 DORADO_MODEL="/projects/b1169/benney/ont_ref/dorado_model/dna_r10.4.1_e8.2_400bps_sup@v5.0.0"
 
