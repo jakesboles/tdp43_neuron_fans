@@ -7,7 +7,7 @@
 #SBATCH --array=1-12
 #SBATCH -N 1
 #SBATCH -n 16
-#SBATCH --job-name=basecalling
+#SBATCH --job-name=01_basecalling
 #SBATCH -o /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans/logs/%x_%A_%a.log
 
 cd /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans

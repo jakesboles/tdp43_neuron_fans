@@ -5,10 +5,10 @@
 #SBATCH --mem=225G
 #SBATCH -N 1
 #SBATCH -n 32
-#SBATCH --job-name=JSB149_full_epi2me
-#SBATCH -o /projects/b1042/Gate_Lab/boles/sc_lr/logs/%x-%j.out
+#SBATCH --job-name=02_epi2me
+#SBATCH -o /projects/b1169/boles/tdp43_neuron_fans/logs/%x-%j.out
 
-cd /projects/b1042/Gate_Lab/boles/sc_lr/fastqs/JSB149
+cd /projects/b1169/boles/tdp43_neuron_fans
 # annoying - need to submit the job from the same place every time so 
 # nextflow can find its own run history to resume a job
 # in the future make sure a starting point is set deliberately
@@ -34,16 +34,16 @@ export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
 mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR"
 
 # update base dir, and have your fastq (.gz accepted) in $BASE/input folder
-BASE="/projects/b1042/Gate_Lab/boles/sc_lr"
-OUTPUT_DIR="$BASE/epi2me_outs/JSB149_merged"
+BASE="/projects/b1169/boles/tdp43_neuron_fans"
+OUTPUT_DIR="$BASE/epi2me_outs/" # make sure each sample gets its own output dir
 WORK_DIR="$BASE/work"
 STORE_DIR="$BASE/store"
-FASTQ_DIR="/projects/b1042/Gate_Lab/boles/sc_lr/fastqs/JSB149"
+FASTQ_DIR="/projects/b1169/boles/tdp43_neuron_fans/basecalled/" # update this
 
 # params
 KIT="3prime:v4" # GEM-X
-CELL_NUM=18512
-SAMPLE_NAME="JSB149"
+CELL_NUM=18512 # make this programmatic or ignore for now if possible
+SAMPLE_NAME="JSB149" # make this programmatic 
 
 mkdir -p "$OUTPUT_DIR" "$BASE/logs" "$WORK_DIR" "$STORE_DIR"
 
