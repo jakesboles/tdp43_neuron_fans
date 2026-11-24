@@ -5,25 +5,39 @@ populations.
 
 ## ONT pre-processing
 
-Project directory on Quest: `/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans`
+Storage on Quest:
+
+| Location | Holds |
+| --- | --- |
+| `/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans` (scratch) | `pod5/`, `basecalled/`, nextflow work dirs |
+| `/projects/b1169/boles/tdp43_neuron_fans` (kept) | `epi2me_outs/`, `nf_outs/`, nextflow launch dirs and logs |
+
+Sample sheets in this repo (submit every job **from the repo root**):
 
 | File | What it holds |
 | --- | --- |
 | `config/samples.tsv` | one row per sequencing run (folder under `pod5/`) and the 10x pool it belongs to |
-| `config/pools.tsv` | one row per 10x pool, with `expected_cells` for wf-single-cell |
+| `config/pools.tsv` | one row per 10x pool, with `expected_cells` |
 
-1. `jobs/01_basecalling.sh`: SLURM array, one task per row of `samples.tsv`.
-   Dorado basecalls each run separately to `basecalled/<run>.fastq.gz`.
-2. `jobs/02_epi2me_single_cell.sh`: SLURM array, one task per row of
-   `pools.tsv`. Combines the FASTQs of every run in a pool and runs
-   epi2me-labs/wf-single-cell once per pool, writing to `epi2me_outs/<pool>/`.
+1. `jobs/00_make_basecall_chunks.sh` (login node, no sbatch): splits each run's
+   POD5s into chunks of N files (default 10) so every basecalling job fits in
+   the 48 h GPU limit. It prints the `--array` range for step 1.
+2. `jobs/01_basecalling.sh`: one GPU task per chunk. It writes plain FASTQ to
+   `basecalled/<run>/<run>_partNNN.fastq`.
+3. `jobs/02_epi2me_single_cell.sh`: one task per pool. It runs
+   epi2me-labs/wf-single-cell on every chunk from every run in the pool.
 
 ```bash
-mkdir -p /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans/logs
-cd /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans
-jid=$(sbatch --parsable jobs/01_basecalling.sh)
-sbatch --dependency=afterok:${jid} jobs/02_epi2me_single_cell.sh
+mkdir -p /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans/logs /projects/b1169/boles/tdp43_neuron_fans/logs
+bash jobs/00_make_basecall_chunks.sh 10        # prints e.g. sbatch --array=1-9 ...
+jid=$(sbatch --parsable --array=1-9 jobs/01_basecalling.sh)
+sbatch --dependency=afterok:${jid} --array=1 jobs/02_epi2me_single_cell.sh   # pools whose runs are all basecalled
 ```
 
-If you add or remove runs or pools, update the two TSVs and the
-`#SBATCH --array` range of each script to match.
+When more POD5s arrive, run step 0 again (not while 01 or 02 jobs are
+running). Finished chunks are skipped, and it prints the range still to do.
+Only chunk a run once its transfer is complete.
+
+`jobs/nf.sh <pool>` runs the separate 10x_LR_preprocessing Nextflow pipeline,
+which does its own basecalling, on one pool. It is an alternative to steps
+0-2 and is not needed for them.
