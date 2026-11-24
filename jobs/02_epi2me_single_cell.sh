@@ -3,70 +3,144 @@
 #SBATCH -p genomics
 #SBATCH -t 48:00:00
 #SBATCH --mem=225G
+#SBATCH --array=1-3
 #SBATCH -N 1
 #SBATCH -n 32
 #SBATCH --job-name=02_epi2me
-#SBATCH -o /projects/b1169/boles/tdp43_neuron_fans/logs/%x-%j.out
+#SBATCH -o /projects/b1169/boles/tdp43_neuron_fans/logs/%x_%A_%a.log
 
-cd /projects/b1169/boles/tdp43_neuron_fans
-# annoying - need to submit the job from the same place every time so 
-# nextflow can find its own run history to resume a job
-# in the future make sure a starting point is set deliberately
+# Run epi2me-labs/wf-single-cell once per 10x pool (one array task per row of
+# config/pools.tsv). Every basecalled FASTQ chunk from every sequencing run in
+# the pool (config/samples.tsv) is fed in together as ONE sample, because they
+# share a single cell barcode space.
+#
+# Submit from the repo root (config/ is read from there), after all 01 tasks
+# have finished, e.g.
+#   sbatch --dependency=afterok:<01 job id> jobs/02_epi2me_single_cell.sh
+# or for one pool only:  sbatch --array=2 jobs/02_epi2me_single_cell.sh
+#
+# Storage:
+#   b1169 (kept):    epi2me_outs/<pool>   results
+#                    epi2me_runs/<pool>   nextflow launch dir, history, log
+#   b1042 (scratch): epi2me_work/<pool>   nextflow work dir (large, disposable)
+#                    epi2me_store/<pool>  cached reference index
+# To resume a failed pool just resubmit it; -resume works as long as the
+# b1042 work dir is still there.
+#
+# NOTE: /projects/b1169/boles/tdp43_neuron_fans/logs must exist before sbatch.
 
-module load cuda/12.0.1-gcc-12.3.0
 module load nextflow/25.10.3
 module load singularity
 
-# ignore
-export SINGULARITYENV_CUDA_VISIBLE_DEVICES=0
+# after module loads: Lmod's own scripts can trip over `set -u`
+set -euo pipefail
 
-export NXF_HOME=/home/egn9175/.nextflow/assets/epi2me-labs/wf-single-cell
-# export NXF_SINGULARITY_CACHEDIR=/gpfs/projects/p31535/boles/epi2me/wf-single-cell/singularity_cache
-# export SINGULARITY_TMPDIR=/gpfs/projects/p31535/boles/epi2me/singularity_tmp
-# export SINGULARITY_CACHEDIR=/gpfs/projects/p31535/boles/epi2me/singularity_cache
+REPO_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
+SAMPLE_SHEET="${REPO_DIR}/config/samples.tsv"
+POOL_SHEET="${REPO_DIR}/config/pools.tsv"
+SCRATCH_DIR="/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans"
+ANALYSIS_DIR="/projects/b1169/boles/tdp43_neuron_fans"
+BASECALL_MANIFEST="${SCRATCH_DIR}/basecalled/chunks.tsv"
+REF_GENOME_DIR="/projects/p31535/boles/cellranger_references/refdata-gex-GRCh38-2024-A"
+WF_REVISION="v3.3.4"
+KIT="3prime:v4" # GEM-X 3' v4
 
-# export NXF_HOME=/projects/p32095/software/wf-single-cell/nxf_assets
 export NXF_SINGULARITY_CACHEDIR=/projects/p32095/software/wf-single-cell/singularity_cache
 export SINGULARITY_TMPDIR=/projects/p32095/software/.scratch/$USER/singularity_tmp
 export SINGULARITY_CACHEDIR=/projects/p32095/software/.scratch/$USER/singularity_cache
-
-export 'PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512'
 mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR"
 
-# update base dir, and have your fastq (.gz accepted) in $BASE/input folder
-BASE="/projects/b1169/boles/tdp43_neuron_fans"
-OUTPUT_DIR="$BASE/epi2me_outs/" # make sure each sample gets its own output dir
-WORK_DIR="$BASE/work"
-STORE_DIR="$BASE/store"
-FASTQ_DIR="/projects/b1169/boles/tdp43_neuron_fans/basecalled/" # update this
+for f in "${SAMPLE_SHEET}" "${POOL_SHEET}" "${BASECALL_MANIFEST}"; do
+  if [[ ! -f "${f}" ]]; then
+    echo "ERROR: ${f} not found (submit from the repo root; run 00/01 first)" >&2
+    exit 1
+  fi
+done
 
-# params
-KIT="3prime:v4" # GEM-X
-CELL_NUM=18512 # make this programmatic or ignore for now if possible
-SAMPLE_NAME="JSB149" # make this programmatic 
+# ---- which pool is this task? ----------------------------------------------
+# +1 skips the header row
+read -r POOL CELL_NUM < <(awk -F'\t' -v n="$((SLURM_ARRAY_TASK_ID + 1))" 'NR == n { print $1, $2 }' "${POOL_SHEET}") || true
+if [[ -z "${POOL:-}" ]]; then
+  echo "ERROR: no row ${SLURM_ARRAY_TASK_ID} in ${POOL_SHEET}" >&2
+  exit 1
+fi
+if ! [[ "${CELL_NUM}" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: expected_cells for pool ${POOL} is '${CELL_NUM}'; set it in ${POOL_SHEET}" >&2
+  exit 1
+fi
+SAMPLE_NAME="JSB${POOL}"
 
-mkdir -p "$OUTPUT_DIR" "$BASE/logs" "$WORK_DIR" "$STORE_DIR"
+RUN_DIR="${ANALYSIS_DIR}/epi2me_runs/${POOL}"     # nextflow launch dir (.nextflow/ history lives here)
+POOL_FASTQ_DIR="${RUN_DIR}/fastq"                 # symlinks to this pool's FASTQs only
+OUTPUT_DIR="${ANALYSIS_DIR}/epi2me_outs/${POOL}"
+WORK_DIR="${SCRATCH_DIR}/epi2me_work/${POOL}"
+STORE_DIR="${SCRATCH_DIR}/epi2me_store/${POOL}"   # per pool: concurrent tasks must not write the same storeDir
 
+mkdir -p "${RUN_DIR}" "${WORK_DIR}" "${STORE_DIR}" "${OUTPUT_DIR}"
 
-# can use your own ref genome here, but I just used this prebuilt 10x reference genome bundle for convenience
-#          to use your own, replace --epi2me_resource_bundle with --ref_genome_dir. expected format:
-#          └── ref_genome_dir
-#                ├── fasta
-#                │   └── genome.fa (or genome.fa.gz)
-#                └── genes
-#                    └── genes.gtf (or genes.gtf.gz)
+# ---- collect this pool's FASTQs --------------------------------------------
+# wf-single-cell treats a flat directory of FASTQs as a single sample.
+# (A directory of sub-directories would instead be read as ONT-barcoded
+# samples, which is not what we want here.)
+rm -rf "${POOL_FASTQ_DIR}"
+mkdir -p "${POOL_FASTQ_DIR}"
+mapfile -t RUNS < <(awk -F'\t' -v p="${POOL}" 'NR > 1 && $2 == p { print $1 }' "${SAMPLE_SHEET}")
+if [[ ${#RUNS[@]} -eq 0 ]]; then
+  echo "ERROR: no sequencing runs listed for pool ${POOL} in ${SAMPLE_SHEET}" >&2
+  exit 1
+fi
+N_FASTQ=0
+for RUN in "${RUNS[@]}"; do
+  # every chunk 00_make_basecall_chunks.sh listed for this run must be done
+  mapfile -t FQS < <(awk -F'\t' -v r="${RUN}" 'NR > 1 && $2 == r { print $5 }' "${BASECALL_MANIFEST}")
+  if [[ ${#FQS[@]} -eq 0 ]]; then
+    echo "ERROR: run ${RUN} (pool ${POOL}) has no chunks in ${BASECALL_MANIFEST}" >&2
+    echo "       (were its POD5s missing when 00_make_basecall_chunks.sh ran?)" >&2
+    exit 1
+  fi
+  for FQ in "${FQS[@]}"; do
+    if [[ ! -s "${FQ}" ]]; then
+      # Fail rather than silently running the pool without part of a run.
+      echo "ERROR: missing basecalled FASTQ for ${RUN} (pool ${POOL}): ${FQ}" >&2
+      exit 1
+    fi
+    ln -s "${FQ}" "${POOL_FASTQ_DIR}/"
+    N_FASTQ=$((N_FASTQ + 1))
+  done
+done
 
+# ---- cap nextflow's local executor at what SLURM gave us ----------------
+# With -profile singularity every process runs inside this one allocation.
+# By default the local executor assumes it owns the whole node's memory.
+MEM_GB=$(( ${SLURM_MEM_PER_NODE:-230400} / 1024 * 9 / 10 ))   # leave ~10% for the nextflow JVM
+cat > "${RUN_DIR}/local_executor.config" <<EOF
+executor {
+  cpus = ${SLURM_CPUS_ON_NODE:-32}
+  memory = '${MEM_GB} GB'
+}
+EOF
 
-nextflow -log "$BASE/logs/nextflow.log" run epi2me-labs/wf-single-cell \
-  -revision v3.3.4 \
+echo "Pool             = ${POOL}"
+echo "Sample name      = ${SAMPLE_NAME}"
+echo "Expected cells   = ${CELL_NUM}"
+echo "Runs             = ${RUNS[*]} (${N_FASTQ} FASTQ chunks)"
+echo "Executor limits  = ${SLURM_CPUS_ON_NODE:-32} cpus, ${MEM_GB} GB"
+echo "Work dir         = ${WORK_DIR}"
+echo "Output           = ${OUTPUT_DIR}"
+
+cd "${RUN_DIR}"
+
+nextflow -log "${RUN_DIR}/nextflow.log" run epi2me-labs/wf-single-cell \
+  -revision "${WF_REVISION}" \
   -profile singularity \
-  -work-dir ${WORK_DIR} \
-  --fastq ${FASTQ_DIR} \
-  --kit ${KIT} \
-  --expected_cells ${CELL_NUM} \
-  --ref_genome_dir /projects/p31535/boles/cellranger_references/refdata-gex-GRCh38-2024-A \
-  --store_dir ${STORE_DIR} \
-  --sample ${SAMPLE_NAME} \
-  --threads 32 \
-  --out_dir ${OUTPUT_DIR} \
+  -c "${RUN_DIR}/local_executor.config" \
+  -work-dir "${WORK_DIR}" \
+  --fastq "${POOL_FASTQ_DIR}" \
+  --sample "${SAMPLE_NAME}" \
+  --kit "${KIT}" \
+  --expected_cells "${CELL_NUM}" \
+  --ref_genome_dir "${REF_GENOME_DIR}" \
+  --store_dir "${STORE_DIR}" \
+  --threads "${SLURM_CPUS_ON_NODE:-32}" \
+  --out_dir "${OUTPUT_DIR}" \
   -resume
