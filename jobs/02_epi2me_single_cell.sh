@@ -10,9 +10,9 @@
 #SBATCH -o /projects/b1169/boles/tdp43_neuron_fans/logs/%x_%A_%a.log
 
 # Run epi2me-labs/wf-single-cell once per 10x pool (one array task per row of
-# config/pools.tsv). Every basecalled FASTQ chunk from every sequencing run in
-# the pool (config/samples.tsv) is fed in together as ONE sample, because they
-# share a single cell barcode space.
+# config/pools.tsv). The basecalled BAMs of every sequencing run in the pool
+# (config/samples.tsv) are fed in together as ONE sample, because they share a
+# single cell barcode space.
 #
 # Submit from the repo root (config/ is read from there), after all 01 tasks
 # have finished, e.g.
@@ -40,7 +40,7 @@ SAMPLE_SHEET="${REPO_DIR}/config/samples.tsv"
 POOL_SHEET="${REPO_DIR}/config/pools.tsv"
 SCRATCH_DIR="/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans"
 ANALYSIS_DIR="/projects/b1169/boles/tdp43_neuron_fans"
-BASECALL_MANIFEST="${SCRATCH_DIR}/basecalled/chunks.tsv"
+BASECALL_DIR="${SCRATCH_DIR}/basecalled"
 REF_GENOME_DIR="/projects/p31535/boles/cellranger_references/refdata-gex-GRCh38-2024-A"
 WF_REVISION="v3.3.4"
 KIT="3prime:v4" # GEM-X 3' v4
@@ -50,9 +50,9 @@ export SINGULARITY_TMPDIR=/projects/p32095/software/.scratch/$USER/singularity_t
 export SINGULARITY_CACHEDIR=/projects/p32095/software/.scratch/$USER/singularity_cache
 mkdir -p "$SINGULARITY_TMPDIR" "$SINGULARITY_CACHEDIR"
 
-for f in "${SAMPLE_SHEET}" "${POOL_SHEET}" "${BASECALL_MANIFEST}"; do
+for f in "${SAMPLE_SHEET}" "${POOL_SHEET}"; do
   if [[ ! -f "${f}" ]]; then
-    echo "ERROR: ${f} not found (submit from the repo root; run 00/01 first)" >&2
+    echo "ERROR: ${f} not found; submit this job from the repo root" >&2
     exit 1
   fi
 done
@@ -71,42 +71,32 @@ fi
 SAMPLE_NAME="JSB${POOL}"
 
 RUN_DIR="${ANALYSIS_DIR}/epi2me_runs/${POOL}"     # nextflow launch dir (.nextflow/ history lives here)
-POOL_FASTQ_DIR="${RUN_DIR}/fastq"                 # symlinks to this pool's FASTQs only
+POOL_BAM_DIR="${RUN_DIR}/bam"                     # symlinks to this pool's unaligned BAMs only
 OUTPUT_DIR="${ANALYSIS_DIR}/epi2me_outs/${POOL}"
 WORK_DIR="${SCRATCH_DIR}/epi2me_work/${POOL}"
 STORE_DIR="${SCRATCH_DIR}/epi2me_store/${POOL}"   # per pool: concurrent tasks must not write the same storeDir
 
 mkdir -p "${RUN_DIR}" "${WORK_DIR}" "${STORE_DIR}" "${OUTPUT_DIR}"
 
-# ---- collect this pool's FASTQs --------------------------------------------
-# wf-single-cell treats a flat directory of FASTQs as a single sample.
+# ---- collect this pool's BAMs ----------------------------------------------
+# wf-single-cell treats a flat directory of (u)BAMs as a single sample.
 # (A directory of sub-directories would instead be read as ONT-barcoded
 # samples, which is not what we want here.)
-rm -rf "${POOL_FASTQ_DIR}"
-mkdir -p "${POOL_FASTQ_DIR}"
+rm -rf "${POOL_BAM_DIR}"
+mkdir -p "${POOL_BAM_DIR}"
 mapfile -t RUNS < <(awk -F'\t' -v p="${POOL}" 'NR > 1 && $2 == p { print $1 }' "${SAMPLE_SHEET}")
 if [[ ${#RUNS[@]} -eq 0 ]]; then
   echo "ERROR: no sequencing runs listed for pool ${POOL} in ${SAMPLE_SHEET}" >&2
   exit 1
 fi
-N_FASTQ=0
 for RUN in "${RUNS[@]}"; do
-  # every chunk 00_make_basecall_chunks.sh listed for this run must be done
-  mapfile -t FQS < <(awk -F'\t' -v r="${RUN}" 'NR > 1 && $2 == r { print $5 }' "${BASECALL_MANIFEST}")
-  if [[ ${#FQS[@]} -eq 0 ]]; then
-    echo "ERROR: run ${RUN} (pool ${POOL}) has no chunks in ${BASECALL_MANIFEST}" >&2
-    echo "       (were its POD5s missing when 00_make_basecall_chunks.sh ran?)" >&2
+  BAM="${BASECALL_DIR}/${RUN}.bam"
+  if [[ ! -s "${BAM}" ]]; then
+    # Fail rather than silently running the pool without one of its runs.
+    echo "ERROR: missing basecalled BAM for ${RUN} (pool ${POOL}): ${BAM}" >&2
     exit 1
   fi
-  for FQ in "${FQS[@]}"; do
-    if [[ ! -s "${FQ}" ]]; then
-      # Fail rather than silently running the pool without part of a run.
-      echo "ERROR: missing basecalled FASTQ for ${RUN} (pool ${POOL}): ${FQ}" >&2
-      exit 1
-    fi
-    ln -s "${FQ}" "${POOL_FASTQ_DIR}/"
-    N_FASTQ=$((N_FASTQ + 1))
-  done
+  ln -s "${BAM}" "${POOL_BAM_DIR}/"
 done
 
 # ---- cap nextflow's local executor at what SLURM gave us ----------------
@@ -123,7 +113,7 @@ EOF
 echo "Pool             = ${POOL}"
 echo "Sample name      = ${SAMPLE_NAME}"
 echo "Expected cells   = ${CELL_NUM}"
-echo "Runs             = ${RUNS[*]} (${N_FASTQ} FASTQ chunks)"
+echo "Runs             = ${RUNS[*]}"
 echo "Executor limits  = ${SLURM_CPUS_ON_NODE:-32} cpus, ${MEM_GB} GB"
 echo "Work dir         = ${WORK_DIR}"
 echo "Output           = ${OUTPUT_DIR}"
@@ -135,7 +125,7 @@ nextflow -log "${RUN_DIR}/nextflow.log" run epi2me-labs/wf-single-cell \
   -profile singularity \
   -c "${RUN_DIR}/local_executor.config" \
   -work-dir "${WORK_DIR}" \
-  --fastq "${POOL_FASTQ_DIR}" \
+  --bam "${POOL_BAM_DIR}" \
   --sample "${SAMPLE_NAME}" \
   --kit "${KIT}" \
   --expected_cells "${CELL_NUM}" \
