@@ -16,8 +16,8 @@
 #   sbatch jobs/nf.sh 158-B
 # The pool's sequencing runs come from config/samples.tsv and the forced cell
 # number from config/pools.tsv. This is the 10x_LR_preprocessing pipeline,
-# an alternative to jobs/00-02 (it does its own basecalling); it is NOT needed
-# to run 00-02.
+# an alternative to jobs/01-02 (it does its own basecalling); it is NOT needed
+# to run 01-02.
 #
 # NOTE: /projects/b1169/boles/tdp43_neuron_fans/logs must exist before sbatch.
 
