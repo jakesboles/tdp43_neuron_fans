@@ -18,9 +18,14 @@
 #
 # Submit from the repo root (config/ is read from there).
 #
-# Output: plain (uncompressed) FASTQ at basecalled/<run>.fastq on b1042.
-# wf-single-cell reads .fastq and .fastq.gz equally, so there is no need to
-# spend GPU-job time compressing.
+# Output: unaligned BAM (dorado's default, already compressed) at
+# basecalled/<run>.bam on b1042. wf-single-cell takes it directly with --bam,
+# and it keeps dorado's run/model metadata that FASTQ drops.
+#
+# Timeouts: while dorado runs, output goes to <run>.bam.partial. If a task is
+# killed (e.g. at the 48 h limit), just resubmit the same array index: the
+# partial file is moved to <run>.bam.resume and dorado --resume-from copies
+# those reads over and basecalls only the rest.
 #
 # NOTE: the logs/ directory must exist BEFORE sbatch, or SLURM can't write the
 # log and the job dies silently:
@@ -47,10 +52,11 @@ if [[ -z "${RUN}" ]]; then
   exit 1
 fi
 
-OUT_FASTQ="${BASECALL_DIR}/${RUN}.fastq"
-TMP_FASTQ="${OUT_FASTQ}.partial"
-if [[ -s "${OUT_FASTQ}" ]]; then
-  echo "${RUN} already basecalled: ${OUT_FASTQ} (delete it to redo)"
+OUT_BAM="${BASECALL_DIR}/${RUN}.bam"
+PARTIAL_BAM="${OUT_BAM}.partial"   # written while dorado runs
+RESUME_BAM="${OUT_BAM}.resume"     # reads kept from an interrupted run
+if [[ -s "${OUT_BAM}" ]]; then
+  echo "${RUN} already basecalled: ${OUT_BAM} (delete it to redo)"
   exit 0
 fi
 
@@ -70,12 +76,26 @@ fi
 
 mkdir -p "${BASECALL_DIR}"
 
+# ---- resume an interrupted run, if there is one -------------------------
+# A resumed run copies the old reads into its new .partial first, so after
+# repeated timeouts keep whichever of .partial / .resume holds more data.
+size() { if [[ -f "$1" ]]; then stat -c %s "$1"; else echo 0; fi; }
+if [[ $(size "${PARTIAL_BAM}") -gt $(size "${RESUME_BAM}") ]]; then
+  mv -f "${PARTIAL_BAM}" "${RESUME_BAM}"
+fi
+rm -f "${PARTIAL_BAM}"
+RESUME_ARGS=()
+if [[ -s "${RESUME_BAM}" ]]; then
+  echo "Resuming from ${RESUME_BAM} ($(size "${RESUME_BAM}") bytes)"
+  RESUME_ARGS=(--resume-from "${RESUME_BAM}")
+fi
+
 echo "Run              = ${RUN}"
 echo "Dorado           = ${DORADO}"
 ${DORADO} --version 2>&1 || true
 echo "Dorado model     = ${DORADO_MODEL}"
 echo "POD5 folder      = ${POD5_DIR} (${N_POD5} files)"
-echo "Output           = ${OUT_FASTQ}"
+echo "Output           = ${OUT_BAM}"
 date
 
 # --no-trim: wf-single-cell locates the 10x adapter / barcode / UMI / polyT
@@ -85,11 +105,17 @@ date
 ${DORADO} basecaller "${DORADO_MODEL}" "${POD5_DIR}" \
   --min-qscore 10 \
   --no-trim \
-  --emit-fastq \
-  > "${TMP_FASTQ}"
+  ${RESUME_ARGS[@]+"${RESUME_ARGS[@]}"} \
+  > "${PARTIAL_BAM}"
+
+# Check the BAM is complete (has its EOF block) if samtools is available
+if command -v samtools >/dev/null 2>&1; then
+  samtools quickcheck "${PARTIAL_BAM}"
+fi
 
 # Only expose the final file once dorado exits cleanly, so a failed or
-# timed-out task never leaves a truncated FASTQ that 02 would pick up.
-mv "${TMP_FASTQ}" "${OUT_FASTQ}"
+# timed-out task never leaves a truncated BAM that 02 would pick up.
+mv "${PARTIAL_BAM}" "${OUT_BAM}"
+rm -f "${RESUME_BAM}"
 date
-echo "Done: ${OUT_FASTQ}"
+echo "Done: ${OUT_BAM}"

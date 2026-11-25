@@ -10,7 +10,7 @@
 #SBATCH -o /projects/b1169/boles/tdp43_neuron_fans/logs/%x_%A_%a.log
 
 # Run epi2me-labs/wf-single-cell once per 10x pool (one array task per row of
-# config/pools.tsv). The basecalled FASTQs of every sequencing run in the pool
+# config/pools.tsv). The basecalled BAMs of every sequencing run in the pool
 # (config/samples.tsv) are fed in together as ONE sample, because they share a
 # single cell barcode space.
 #
@@ -71,32 +71,32 @@ fi
 SAMPLE_NAME="JSB${POOL}"
 
 RUN_DIR="${ANALYSIS_DIR}/epi2me_runs/${POOL}"     # nextflow launch dir (.nextflow/ history lives here)
-POOL_FASTQ_DIR="${RUN_DIR}/fastq"                 # symlinks to this pool's FASTQs only
+POOL_BAM_DIR="${RUN_DIR}/bam"                     # symlinks to this pool's unaligned BAMs only
 OUTPUT_DIR="${ANALYSIS_DIR}/epi2me_outs/${POOL}"
 WORK_DIR="${SCRATCH_DIR}/epi2me_work/${POOL}"
 STORE_DIR="${SCRATCH_DIR}/epi2me_store/${POOL}"   # per pool: concurrent tasks must not write the same storeDir
 
 mkdir -p "${RUN_DIR}" "${WORK_DIR}" "${STORE_DIR}" "${OUTPUT_DIR}"
 
-# ---- collect this pool's FASTQs --------------------------------------------
-# wf-single-cell treats a flat directory of FASTQs as a single sample.
+# ---- collect this pool's BAMs ----------------------------------------------
+# wf-single-cell treats a flat directory of (u)BAMs as a single sample.
 # (A directory of sub-directories would instead be read as ONT-barcoded
 # samples, which is not what we want here.)
-rm -rf "${POOL_FASTQ_DIR}"
-mkdir -p "${POOL_FASTQ_DIR}"
+rm -rf "${POOL_BAM_DIR}"
+mkdir -p "${POOL_BAM_DIR}"
 mapfile -t RUNS < <(awk -F'\t' -v p="${POOL}" 'NR > 1 && $2 == p { print $1 }' "${SAMPLE_SHEET}")
 if [[ ${#RUNS[@]} -eq 0 ]]; then
   echo "ERROR: no sequencing runs listed for pool ${POOL} in ${SAMPLE_SHEET}" >&2
   exit 1
 fi
 for RUN in "${RUNS[@]}"; do
-  FQ="${BASECALL_DIR}/${RUN}.fastq"
-  if [[ ! -s "${FQ}" ]]; then
+  BAM="${BASECALL_DIR}/${RUN}.bam"
+  if [[ ! -s "${BAM}" ]]; then
     # Fail rather than silently running the pool without one of its runs.
-    echo "ERROR: missing basecalled FASTQ for ${RUN} (pool ${POOL}): ${FQ}" >&2
+    echo "ERROR: missing basecalled BAM for ${RUN} (pool ${POOL}): ${BAM}" >&2
     exit 1
   fi
-  ln -s "${FQ}" "${POOL_FASTQ_DIR}/"
+  ln -s "${BAM}" "${POOL_BAM_DIR}/"
 done
 
 # ---- cap nextflow's local executor at what SLURM gave us ----------------
@@ -125,7 +125,7 @@ nextflow -log "${RUN_DIR}/nextflow.log" run epi2me-labs/wf-single-cell \
   -profile singularity \
   -c "${RUN_DIR}/local_executor.config" \
   -work-dir "${WORK_DIR}" \
-  --fastq "${POOL_FASTQ_DIR}" \
+  --bam "${POOL_BAM_DIR}" \
   --sample "${SAMPLE_NAME}" \
   --kit "${KIT}" \
   --expected_cells "${CELL_NUM}" \
