@@ -107,9 +107,8 @@ obj@meta.data %>%
 
 obj <- JoinLayers(obj)
 
-# NEEDS INPUT: assumes every Cell Ranger sample name is "<tissue>_<tdp>",
-# as in pool 149. Check this holds for new pools, and what "tissue" stands
-# for (donor?), since later DE models may need it as a covariate.
+# Cell Ranger sample names are "<tissue>_<tdp>", where tissue is the brain
+# region (e.g. Frontal_TDPneg; see config/jsb149_cellranger_config.csv).
 obj@meta.data <- obj@meta.data %>%
   mutate(tissue = str_split_i(sample, "_", i = 1),
          tdp = str_split_i(sample, "_", i = 2))
