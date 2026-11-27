@@ -1,145 +1,146 @@
-# Load libraries
+# Runs DoubletFinder (adjusted and unadjusted) on one sample, loading that
+# sample's QC-filtered counts from 01_qc.R's BPCells matrix. Runs as a SLURM
+# job array (see jobs/sc_jobs/02_doubletfinder.sh), one task per sample.
+# Script again adapted from Anne's projects.
+
 suppressMessages({
-  library("plyr")
-  library("tidyverse")
-  library("Seurat")
-  library("ggthemes")
-  library("ggrepel")
-  library("grid")
-  library("DoubletFinder")
-  library("doMC")
-  library("xlsx")
-  library("RColorBrewer")
+  library(tidyverse)
+  library(Seurat)
+  library(BPCells)
+  library(Matrix)
+  library(DoubletFinder)
   library(scCustomize)
-  # library(ggpubr)
-  # library(BPCells)
   library(patchwork)
 })
 
-sample <- commandArgs(trailingOnly = TRUE)[1]
-cell_count <- commandArgs(trailingOnly = T)[2]
+message2 <- function(text){
+  v1 <- paste(rep("~", 15),
+              collapse = "")
+  message(paste0(v1, text, v1))
+}
 
-cell_count <- as.numeric(cell_count)
+setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
-# Script again adapted from Anne's projects
-
-setwd("/projects/b1169/boles/JSB149")
-
-plots_dir <- "plots/02_doubletfinder/"
-dir.create(plots_dir,
+results_dir <- "results/sc_results/02_doubletfinder/"
+dir.create(results_dir,
            showWarnings = F, recursive = T)
 
-data_out_dir <- "data/02_doubletfinder/"
-dir.create(data_out_dir,
-           showWarnings = F, recursive = T)
+# Figure out which sample this task handles ---------------------------------
 
-tab_dir <- "tab_data/02_doubletfinder/"
-dir.create(tab_dir,
-           showWarnings = F,
-           recursive = T)
+task_id <- Sys.getenv("SLURM_ARRAY_TASK_ID")
+if (task_id == ""){
+  stop("SLURM_ARRAY_TASK_ID is not set -- this script is meant to run as a ",
+       "SLURM job array (see jobs/sc_jobs/02_doubletfinder.sh), one task per ",
+       "sample, not as a standalone Rscript call.")
+}
+task_id <- as.integer(task_id)
 
-obj <- readRDS("data/01_qc/obj.rds")
+message2("Loading metadata")
+meta_all <- readRDS("data/sc_data/01_qc/metadata.rds")
 
-# Define function to run DoubletFinder
+# Sorting guarantees the same sample <-> array index mapping every run.
+samples <- sort(unique(meta_all$orig.ident))
+
+if (task_id < 1 | task_id > length(samples)){
+  stop(paste0("SLURM_ARRAY_TASK_ID (", task_id, ") is out of range for ",
+              length(samples), " samples -- check the --array range in ",
+              "jobs/sc_jobs/02_doubletfinder.sh against ",
+              "length(unique(orig.ident))."))
+}
+
+sample_id <- samples[task_id]
+
+message2(paste0("Processing ", sample_id, " (task ", task_id, "/",
+                length(samples), ")"))
+
+# Load this sample's counts -------------------------------------------------
+
+meta_sample <- meta_all[meta_all$orig.ident == sample_id, ]
+
+mat <- open_matrix_dir("data/sc_data/01_qc/bpcells")
+mat <- mat[, rownames(meta_sample)]
+
+# DoubletFinder's paramSweep() samples cell pairs WITH replacement, and
+# BPCells' `[` rejects duplicate column selections, so materialize this one
+# sample in memory first.
+mat <- as(mat, "dgCMatrix")
+
+obj <- CreateSeuratObject(counts = mat, meta.data = meta_sample)
+
+# Post-QC cell count for this sample, as previously passed in from
+# 01_qc.R's params file.
+cell_count <- ncol(obj)
+doublet_rate <- (cell_count / 10000) * 0.04
+
+# Define function to run DoubletFinder ---------------------------------------
+
 run_doubletfinder <- function(s, doublet_rate) {
-  
-  # Standard normalization and scaling 
+
+  # Standard normalization and scaling
   s <- s %>% NormalizeData() %>% FindVariableFeatures() %>% ScaleData()
-  
-  # Default Seurat clustering and TSNE 
+
+  # Default Seurat clustering and UMAP
   s <- s %>% RunPCA() %>% FindNeighbors(dims = 1:10) %>% FindClusters()
   s <- RunUMAP(s, dims = 1:10) # had to set check_duplicates to FALSE for some samples
-  
+
   # pK Identification (no ground-truth)
-  sweep.res.list <- paramSweep(s, PCs = 1:10, sct = FALSE) 
+  sweep.res.list <- paramSweep(s, PCs = 1:10, sct = FALSE)
   sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
   bcmvn <- find.pK(sweep.stats)
   max_index <- which.max(bcmvn$BCmetric)
   optimal_pK <- as.numeric(as.character(bcmvn[max_index, "pK"]))
-  
+
   # Homotypic Doublet Proportion Estimate
   annotations <- s@meta.data$seurat_clusters
   homotypic.prop <- modelHomotypic(annotations)
   nExp_poi <- round(doublet_rate*nrow(s@meta.data))
   nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
-  
-  # Run DoubletFinder without homotypic adjustment 
+
+  # Run DoubletFinder without homotypic adjustment
   s <- doubletFinder(s, PCs = 1:10, pN = 0.25, pK = optimal_pK, nExp = nExp_poi, reuse.pANN = FALSE, sct = FALSE)
-  
+
   # Rename meta column
   colnames(s@meta.data)[grep("DF.classifications*", colnames(s@meta.data))] <- "DF.unadj"
-  
+
   # Run DoubletFinder with homotypic adjustment
   pANN <- colnames(s@meta.data)[grep("^pANN", colnames(s@meta.data))]
   print(pANN)
   s <- doubletFinder(s, PCs = 1:10, pN = 0.25, pK = optimal_pK, nExp = nExp_poi.adj, reuse.pANN = pANN, sct = FALSE)
-  
+
   # Rename meta column
   colnames(s@meta.data)[grep("DF.classifications*", colnames(s@meta.data))] <- "DF.adj"
-  
-  # Plot unadjusted vs. adjusted doublets in TSNE coordinates
-  # plt <- ggarrange(
-  #   (DimPlot_scCustom(s, reduction = "umap", group.by = "DF.unadj", 
-  #                     pt.size = 1, shuffle = TRUE, alpha = 0.6) + 
-  #      ggtitle("Unadjusted")),
-  #   (DimPlot_scCustom(s, reduction = "umap", group.by = "DF.adj", 
-  #                     pt.size = 1, shuffle = TRUE, alpha = 0.6) +
-  #      ggtitle("Adjusted for Homotypic Proportion")),
-  #   ncol = 2, nrow = 1,
-  #   common.legend = T, legend = "right"
-  # )
-  
-  p1 <- DimPlot_scCustom(s, 
-                         reduction = "umap", 
-                         group.by = "DF.unadj", 
-                         pt.size = 1) + 
+
+  p1 <- DimPlot_scCustom(s,
+                         reduction = "umap",
+                         group.by = "DF.unadj",
+                         pt.size = 1) +
     ggtitle("Unadjusted")
-  
-  p2 <- DimPlot_scCustom(s, 
-                         reduction = "umap", 
-                         group.by = "DF.adj", 
-                         pt.size = 1) + 
+
+  p2 <- DimPlot_scCustom(s,
+                         reduction = "umap",
+                         group.by = "DF.adj",
+                         pt.size = 1) +
     ggtitle("Adjusted for homotypic proportion")
-  
+
   p <- p1 + p2
-  
+
   ggsave(p,
-         filename = paste0(plots_dir, sample, "_umap.png"),
+         filename = paste0(results_dir, sample_id, "_umap.png"),
          units = "in", dpi = 600,
          height = 5, width = 10)
-  
+
   return(s)
 }
 
-obj <- subset(obj,
-              orig.ident == sample)
-
-doublet_rate <- (cell_count / 10000) * 0.04
+message2("Running DoubletFinder")
 
 obj <- run_doubletfinder(obj, doublet_rate)
 
-saveRDS(obj,
-        file = paste0(data_out_dir, sample, ".rds"))
+# Save ----------------------------------------------------------------------
+message2("Saving DoubletFinder calls")
 
+# 03_integration.R reads these per-sample tables and checks every sample is
+# present. The per-sample Seurat object is no longer saved: nothing
+# downstream read it, and the counts already live in 01_qc.R's matrix.
 write.csv(obj@meta.data,
-          file = paste0(tab_dir, sample, "_meta.csv"))
-
-# # Run DoubletFinder on all samples
-# for (s in seq_along(obj_list)) {
-#   message(paste0(
-#     paste(rep("~", 40), collapse = ""),
-#     "Running ", names(obj_list)[s],
-#     paste(rep("~", 40), collapse = "")
-#   ))
-#   
-#   obj_list[[s]] <- run_doubletfinder(obj_list[[s]], doublet_rates[s])
-#   saveRDS(obj_list[[s]], 
-#           paste0(data_out_dir, names(obj_list)[s], ".rds"))
-#   
-#   # obj_list[[s]] <- DietSeurat(obj_list[[s]],
-#   #                             layers = "counts")
-#   # 
-#   # obj_list[[s]][["RNA"]]$data <- NULL
-#   # obj_list[[s]][["RNA"]]$scale.data <- NULL
-# }
-
+          file = paste0(results_dir, sample_id, "_meta.csv"))

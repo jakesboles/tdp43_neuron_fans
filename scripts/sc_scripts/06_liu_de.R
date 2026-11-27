@@ -1,9 +1,28 @@
-library(tidyverse)
-library(DESeq2)
-library(apeglm)
-library(IHW)
+# DESeq2 on the bulk RNA-seq of TDP-43- vs TDP-43+ neuronal nuclei from
+# GEO GSE126542 (Liu et al.), for comparison with this dataset's DE.
 
-setwd("/projects/b1169/boles/JSB149")
+suppressMessages({
+  library(tidyverse)
+  library(DESeq2)
+  library(apeglm)
+  library(IHW)
+})
+
+message2 <- function(text){
+  v1 <- paste(rep("~", 15),
+              collapse = "")
+  message(paste0(v1, text, v1))
+}
+
+setwd("/projects/b1169/boles/tdp43_neuron_fans")
+
+results_dir <- "results/sc_results/06_liu_de/"
+dir.create(results_dir,
+           showWarnings = F,
+           recursive = T)
+
+# external_data/ (gitignored) holds this GEO counts file.
+message2("Reading GSE126542 counts")
 
 df <- read_table("external_data/GSE126542_NeuronalNuclei_RNAseq_counts.txt")
 
@@ -46,17 +65,15 @@ dds <- dds[keep,]
 
 dds$tdp
 
+message2("Running DESeq2")
+
 dds <- DESeq(dds)
 
 res <- results(dds,
                independentFiltering = T,
                filterFun = ihw)
-View(as.data.frame(res))
-
-dir.create("tab_data/06_liu_de",
-           showWarnings = F,
-           recursive = T)
+head(as.data.frame(res))
 
 res %>%
   as.data.frame() %>% 
-  write.csv("tab_data/06_liu_de/deseq.csv")
+  write.csv(paste0(results_dir, "deseq.csv"))
