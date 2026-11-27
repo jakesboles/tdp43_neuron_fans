@@ -1,30 +1,50 @@
+# MAST single-cell DE (TDPneg vs TDPpos) within one cell type, with cellular
+# detection rate as a covariate and a per-sample random intercept. Rebuilds
+# the cell type's counts from 01_qc.R's BPCells matrix using
+# 04_annotation.R's labels.
+
 suppressMessages({
-  library(Signac)
   library(Seurat)
+  library(BPCells)
   library(MAST)
-  library(EnsDb.Hsapiens.v86)
-  library(BSgenome.Hsapiens.UCSC.hg38)
   library(tidyverse)
   library(patchwork)
   library(lme4)
 })
 
-setwd("/projects/b1169/boles/JSB149")
+message2 <- function(text){
+  v1 <- paste(rep("~", 15),
+              collapse = "")
+  message(paste0(v1, text, v1))
+}
+
+setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
 p_thresh <- 0.05
 fc_thresh <- 0.25
 
-# Define output directory
-output_dir <- "tab_data/05_tdp43_de/"
+# NEEDS INPUT: only L2/3 ENs are tested, as before. Say if this should
+# become a SLURM array over every label2 cell type.
+cell_type <- "L2/3 EN"
+cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
+
+# Shared with 05_tdp43_de_pseudobulk.R and 05_tdp43_de_wilcox.R
+output_dir <- paste0("results/sc_results/05_tdp43_de/", cell_type_file, "/")
 dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Load expression within cell type
-s <- readRDS("data/04_annotation/obj.rds")
+message2(paste0("Loading ", cell_type, " counts"))
 
-s <- subset(s,
-            subset = label2 == "L2/3 EN")
+meta <- readRDS("data/sc_data/04_annotation/metadata.rds")
+meta <- meta[meta$label2 %in% cell_type, ]
 
-s <- JoinLayers(s)
+counts <- open_matrix_dir("data/sc_data/01_qc/bpcells")
+counts <- counts[, rownames(meta)]
+
+# One cell type fits in memory, and MAST needs a plain matrix anyway.
+counts <- as(counts, "dgCMatrix")
+
+s <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "RNA")
 s <- NormalizeData(s)
 
 
@@ -91,6 +111,8 @@ colData(sca)$group <- group_ordered
 options(mc.cores = 16)
 
 # MAST does not allow ebayes (empirical Bayes estimation to regularize variance) for glmer
+message2("Fitting MAST model")
+
 zlm_group <- zlm(~ tdp + cdr_centered + (1 | orig.ident), 
                  sca, 
                  ebayes = FALSE, 
@@ -126,4 +148,6 @@ results$DE_gene[results$DE != "Not DE"] <- results$gene[results$DE != "Not DE"]
 table(results$DE)
 
 # Save results
+message2("Saving results")
+
 write.csv(results, paste0(output_dir, "mast.csv"))

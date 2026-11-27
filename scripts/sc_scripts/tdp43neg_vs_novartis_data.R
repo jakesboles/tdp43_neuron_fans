@@ -1,17 +1,42 @@
-library(tidyverse)
-library(readxl)
-library(ggplot2)
-library(ggrepel)
-library(ComplexUpset)
-library(patchwork)
+# Compares this dataset's pseudobulk DESeq2 results (05_tdp43_de_pseudobulk.R)
+# with Novartis's TDP-43 knockout Ngn2 neuron DE tables (Ribozero bulk, and
+# Flex single-cell and single-nucleus).
 
-setwd("/projects/b1169/boles/JSB149")
+suppressMessages({
+  library(tidyverse)
+  library(readxl)
+  library(ggplot2)
+  library(ggrepel)
+  library(ComplexUpset)
+  library(patchwork)
+})
 
-de1 <- read.csv("tab_data/05_tdp43_de/deseq2.csv")
+message2 <- function(text){
+  v1 <- paste(rep("~", 15),
+              collapse = "")
+  message(paste0(v1, text, v1))
+}
+
+setwd("/projects/b1169/boles/tdp43_neuron_fans")
+
+# NEEDS INPUT: matches the cell type tested in the 05_tdp43_de_* scripts.
+cell_type <- "L2/3 EN"
+cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
+
+results_dir <- "results/sc_results/tdp43neg_vs_novartis_data/"
+dir.create(results_dir,
+           showWarnings = F,
+           recursive = T)
+
+# NEEDS INPUT: the three Novartis tables used to be read from tab_data/;
+# move them into external_data/ (gitignored) under the project root.
+message2("Reading DE tables")
+
+de1 <- read.csv(paste0("results/sc_results/05_tdp43_de/", cell_type_file, "/deseq2.csv"))
 
 # vs Ribozero data --------------------------------------------------------
 
-de2 <- read_xlsx("tab_data/TDP43 KO F6 DE Ribozero Ngn2.xlsx",
+de2 <- read_xlsx("external_data/TDP43 KO F6 DE Ribozero Ngn2.xlsx",
                  sheet = 1)
 
 str(de1)
@@ -28,7 +53,7 @@ labs <- de %>%
   na.omit() %>%
   filter(nu_padj < 0.05)
 
-de %>% 
+p <- de %>% 
   na.omit() %>%
   mutate(nu_sig = if_else(nu_padj < 0.05, "sig", "ns") %>%
            factor(levels = c("sig", "ns"),
@@ -45,7 +70,8 @@ de %>%
        x = "Fold change in TDP-43 KO Ngn2 cells",
        fill = "Padj < 0.05 in\nTDP-43- neuronal nuclei") +
   theme_linedraw()
-ggsave(filename = "plots/tdp43ko_vs_tdp43neg.png",
+ggsave(p,
+       filename = paste0(results_dir, "tdp43ko_ribozero_vs_tdp43neg.png"),
        units = "in", dpi = 600,
        height = 8, width = 10)
 
@@ -56,8 +82,8 @@ ggsave(filename = "plots/tdp43ko_vs_tdp43neg.png",
 
 # vs Flex data ------------------------------------------------------------
 
-de3 <- read.csv("tab_data/TDP43 KO GW FLEX_DE_results_scRNA copy.csv")
-de4 <- read.csv("tab_data/TDP43 KO GW FLEX_DE_results_snRNA copy.csv")
+de3 <- read.csv("external_data/TDP43 KO GW FLEX_DE_results_scRNA copy.csv")
+de4 <- read.csv("external_data/TDP43 KO GW FLEX_DE_results_snRNA copy.csv")
 
 de3 <- de3[,c(1, 4, 6)]
 de4 <- de4[,c(1, 4, 6)]
@@ -75,7 +101,7 @@ sc_de <- sc_de %>%
                          nu_padj >= 0.05 & novartis_sc_padj < 0.05 & abs(novartis_sc_lfc) > 0.5 ~ "novartis")) %>% 
   filter(sig != "ns")
 
-sc_de %>%
+p <- sc_de %>%
   na.omit() %>%
   mutate(sig = factor(sig, 
                       levels = c("nu", "novartis", "both"),
@@ -95,6 +121,10 @@ sc_de %>%
        x = "Fold change in TDP-43 KO Ngn2 cells (single-cell)",
        fill = "Padj < 0.05 in:") +
   theme_linedraw()
+ggsave(p,
+       filename = paste0(results_dir, "tdp43ko_flex_sc_vs_tdp43neg.png"),
+       units = "in", dpi = 600,
+       height = 8, width = 10)
 
 sn_de <- sn_de %>%
   mutate(sig = case_when(.default = "ns",
@@ -103,7 +133,7 @@ sn_de <- sn_de %>%
                          nu_padj >= 0.05 & novartis_sn_padj < 0.05 & abs(novartis_sn_lfc) > 0.5 ~ "novartis")) %>% 
   filter(sig != "ns")
 
-sn_de %>%
+p <- sn_de %>%
   na.omit() %>%
   mutate(sig = factor(sig, 
                       levels = c("nu", "novartis", "both"),
@@ -123,6 +153,10 @@ sn_de %>%
        x = "Fold change in TDP-43 KO Ngn2 cells (single-nuclei)",
        fill = "Padj < 0.05 in:") +
   theme_linedraw()
+ggsave(p,
+       filename = paste0(results_dir, "tdp43ko_flex_sn_vs_tdp43neg.png"),
+       units = "in", dpi = 600,
+       height = 8, width = 10)
 
 # upset plot --------------------------------------------------------------
 
@@ -241,7 +275,8 @@ p_sn_de <- sn_de %>%
   theme_linedraw() + 
   theme(plot.title = element_text(hjust = 0.5))
 
-free(p_upset) / (p_sc_de | p_sn_de) 
-ggsave(filename = "plots/tdp43neg_vs_tdp43ko_flex.png",
+p <- free(p_upset) / (p_sc_de | p_sn_de) 
+ggsave(p,
+       filename = paste0(results_dir, "tdp43neg_vs_tdp43ko_flex.png"),
        units = "in", dpi = 600,
        height = 10, width = 15)

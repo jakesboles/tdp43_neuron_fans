@@ -1,6 +1,11 @@
+# Pseudobulk DE (DESeq2 LRT and edgeR QL), TDPneg vs TDPpos, within one
+# cell type, one pseudobulk sample per orig.ident. Rebuilds the cell type's
+# real counts from 01_qc.R's BPCells matrix using 04_annotation.R's labels.
+
 suppressPackageStartupMessages({
   library(DESeq2)
   library(Seurat)
+  library(BPCells)
   library(tidyverse)
   library(apeglm)
   library(IHW)
@@ -9,23 +14,37 @@ suppressPackageStartupMessages({
   library(edgeR)
 })
 
-setwd("/projects/b1169/boles/JSB149")
+message2 <- function(text){
+  v1 <- paste(rep("~", 15),
+              collapse = "")
+  message(paste0(v1, text, v1))
+}
+
+setwd("/projects/b1169/boles/tdp43_neuron_fans")
+
+# NEEDS INPUT: only L2/3 ENs are tested, as before (see
+# 05_tdp43_de_mast.R).
+cell_type <- "L2/3 EN"
+cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 
 # OUTPUTS
-results_dir <- "tab_data/05_tdp43_de/"
+results_dir <- paste0("results/sc_results/05_tdp43_de/", cell_type_file, "/")
 dir.create(results_dir, showWarnings = F, recursive = T)
 
 method <- "DESeq2"
 
-obj <- readRDS(paste0("data/04_annotation/obj.rds"))
+message2(paste0("Loading ", cell_type, " counts"))
 
-obj <- obj %>%
-  subset(label2 == "L2/3 EN")
+meta <- readRDS("data/sc_data/04_annotation/metadata.rds")
+meta <- meta[meta$label2 %in% cell_type, ]
+
+counts <- open_matrix_dir("data/sc_data/01_qc/bpcells")
+counts <- counts[, rownames(meta)]
+
+obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "RNA")
 
 obj$tdp <- factor(obj$tdp,
                   levels = c("TDPpos", "TDPneg"))
-
-obj <- JoinLayers(obj)
 
 # calculate cells per sample
 sample_cell_nums <- obj@meta.data %>% 
@@ -60,6 +79,10 @@ meta <- meta[idx, ]
 # exp  <- exp[, keep_samples]
 # meta <- meta[keep_samples, ]
 
+# NEEDS INPUT: the comment says "at least half of each group", but the code
+# keeps genes with >= 20 CPM in at least 2 samples overall. Those agree for
+# pool 149's 4 samples (2 per group) but not once more pools are added --
+# set the rule you want.
 # filter for genes with at least 20 CPM in at least half of each group
 sample_total_counts <- colSums(exp)
 cpm_mat <- t(t(exp) / sample_total_counts) * 1e6
@@ -73,9 +96,14 @@ genes_keep <- rowSums(cpm_mat >= min_CPM) >= 2
 exp_filt <- exp[genes_keep,]
 
 ##### DIFFERENTIAL EXPRESSION #####
+message2("Running differential expression")
 
 for (method in c("DESeq2", "edgeR")){
   if (method == "DESeq2") {
+    # NEEDS INPUT: ~ tdp alone treats every sample as independent. With
+    # more pools/donors, a paired design (e.g. ~ donor + tdp, with the
+    # reduced model ~ donor) is likely needed -- which metadata column
+    # identifies the donor?
     dds <- DESeqDataSetFromMatrix(countData = exp_filt,
                                   colData = meta,
                                   design = ~ tdp)

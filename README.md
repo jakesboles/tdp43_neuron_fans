@@ -35,3 +35,31 @@ sbatch --dependency=afterok:${jid} jobs/02_epi2me_single_cell.sh
 `jobs/nf.sh <pool>` runs the separate 10x_LR_preprocessing Nextflow pipeline,
 which does its own basecalling, on one pool. It is an alternative to steps
 1-2 and is not needed for them.
+
+## Short-read scRNA-seq (10x 3' OCM)
+
+R scripts in `scripts/sc_scripts/`. Every script runs from the project root,
+`/projects/b1169/boles/tdp43_neuron_fans`, and reads Cell Ranger output for
+every pool with a `cellranger_dir` in `config/pools.tsv`. Pools still set to
+`NA` are skipped.
+
+| Output | Location |
+| --- | --- |
+| Data objects (BPCells matrices, metadata and reduction RDS files) | `data/sc_data/<script>/` |
+| Tables and PNG plots | `results/sc_results/<script>/[<cell type>/]` |
+| External reference tables (GEO, Novartis) | `external_data/` |
+
+Only `01_qc.R` writes a counts matrix (`data/sc_data/01_qc/bpcells`, real
+counts for QC-passing cells). Later scripts rebuild their object from it,
+subset to their own cells, and re-normalize, plus their own `metadata.rds`
+and reductions.
+
+1. `01_qc.R`: build, QC, and filter all pools
+2. `02_doubletfinder.R`: SLURM array, one task per sample
+   (`jobs/sc_jobs/02_doubletfinder.sh`; set `--array` to the number of samples)
+3. `03_integration.R`: Harmony integration, clustering, markers
+4. `04_annotation.R`: interactive labeling; cluster-to-label maps must be redone
+   whenever clustering changes
+5. `05_tdp43_de_{pseudobulk,mast,wilcox}.R`: TDPneg vs TDPpos within a cell type
+6. `06_liu_de.R`, `07_meta_de.R`, `summary_plots.R`,
+   `tdp43neg_vs_novartis_data.R`: comparisons and figures
