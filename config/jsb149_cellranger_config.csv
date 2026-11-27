@@ -1,0 +1,14 @@
+[gene-expression],,
+reference,/projects/p31535/boles/cellranger_references/refdata-gex-GRCh38-2024-A,
+create-bam,TRUE,
+,,
+[libraries],,
+fastq_id,fastqs,feature_types
+JSB149,/projects/b1042/Gate_Lab/boles/JSB149/fastq,Gene Expression
+,,
+[samples],,
+sample_id,ocm_barcode_ids,
+Frontal_TDPpos,OB1,
+Frontal_TDPneg,OB2,
+Temporal_TDPpos,OB3,
+Temporal_TDPneg,OB4,
