@@ -23,8 +23,8 @@ setwd("/projects/b1169/boles/tdp43_neuron_fans")
 p_thresh <- 0.05
 fc_thresh <- 0.25
 
-# NEEDS INPUT: only L2/3 ENs are tested, as before. Say if this should
-# become a SLURM array over every label2 cell type.
+# Cell type to test; also set in the other 05_tdp43_de_* scripts and the
+# scripts that read their results (07, summary_plots, Novartis comparison).
 cell_type <- "L2/3 EN"
 cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 

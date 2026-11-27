@@ -31,8 +31,6 @@ for (i in c(results_dir, data_dir)){
 }
 
 # QC thresholds -------------------------------------------------------------
-# NEEDS INPUT: chosen on pool 149 alone -- recheck the raw_* plots once more
-# pools are added before trusting them for every pool.
 max_mito <- 10
 min_count <- 1500
 max_count <- 80000

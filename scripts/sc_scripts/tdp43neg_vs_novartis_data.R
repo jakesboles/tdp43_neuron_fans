@@ -19,7 +19,7 @@ message2 <- function(text){
 
 setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
-# NEEDS INPUT: matches the cell type tested in the 05_tdp43_de_* scripts.
+# Matches the cell type tested in the 05_tdp43_de_* scripts.
 cell_type <- "L2/3 EN"
 cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 
@@ -28,8 +28,7 @@ dir.create(results_dir,
            showWarnings = F,
            recursive = T)
 
-# NEEDS INPUT: the three Novartis tables used to be read from tab_data/;
-# move them into external_data/ (gitignored) under the project root.
+# The three Novartis tables live in external_data/ (gitignored).
 message2("Reading DE tables")
 
 de1 <- read.csv(paste0("results/sc_results/05_tdp43_de/", cell_type_file, "/deseq2.csv"))

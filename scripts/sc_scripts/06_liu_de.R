@@ -21,8 +21,7 @@ dir.create(results_dir,
            showWarnings = F,
            recursive = T)
 
-# NEEDS INPUT: external_data/ is gitignored -- make sure this GEO counts
-# file is in external_data/ under the project root.
+# external_data/ (gitignored) holds this GEO counts file.
 message2("Reading GSE126542 counts")
 
 df <- read_table("external_data/GSE126542_NeuronalNuclei_RNAseq_counts.txt")

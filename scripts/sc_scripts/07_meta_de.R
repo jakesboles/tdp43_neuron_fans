@@ -14,7 +14,7 @@ message2 <- function(text){
 
 setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
-# NEEDS INPUT: matches the cell type tested in the 05_tdp43_de_* scripts.
+# Matches the cell type tested in the 05_tdp43_de_* scripts.
 cell_type <- "L2/3 EN"
 cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 

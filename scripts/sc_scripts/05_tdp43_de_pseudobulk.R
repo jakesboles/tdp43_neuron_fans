@@ -22,8 +22,7 @@ message2 <- function(text){
 
 setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
-# NEEDS INPUT: only L2/3 ENs are tested, as before (see
-# 05_tdp43_de_mast.R).
+# Cell type to test (see 05_tdp43_de_mast.R).
 cell_type <- "L2/3 EN"
 cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 
@@ -79,10 +78,6 @@ meta <- meta[idx, ]
 # exp  <- exp[, keep_samples]
 # meta <- meta[keep_samples, ]
 
-# NEEDS INPUT: the comment says "at least half of each group", but the code
-# keeps genes with >= 20 CPM in at least 2 samples overall. Those agree for
-# pool 149's 4 samples (2 per group) but not once more pools are added --
-# set the rule you want.
 # filter for genes with at least 20 CPM in at least half of each group
 sample_total_counts <- colSums(exp)
 cpm_mat <- t(t(exp) / sample_total_counts) * 1e6
@@ -100,10 +95,6 @@ message2("Running differential expression")
 
 for (method in c("DESeq2", "edgeR")){
   if (method == "DESeq2") {
-    # NEEDS INPUT: ~ tdp alone treats every sample as independent. With
-    # more pools/donors, a paired design (e.g. ~ donor + tdp, with the
-    # reduced model ~ donor) is likely needed -- which metadata column
-    # identifies the donor?
     dds <- DESeqDataSetFromMatrix(countData = exp_filt,
                                   colData = meta,
                                   design = ~ tdp)

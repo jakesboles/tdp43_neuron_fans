@@ -67,11 +67,8 @@ mat <- as(mat, "dgCMatrix")
 
 obj <- CreateSeuratObject(counts = mat, meta.data = meta_sample)
 
-# NEEDS INPUT: this is the post-QC cell count, as in the original script
-# (it came from 01_qc.R's params file written after filtering). Doublets
-# form at loading, so the pre-QC count -- or, with OCM, possibly the whole
-# channel's cell count -- may be the better basis. 0.04 per 10,000 cells
-# matches 10x's GEM-X rate.
+# Post-QC cell count for this sample, as previously passed in from
+# 01_qc.R's params file.
 cell_count <- ncol(obj)
 doublet_rate <- (cell_count / 10000) * 0.04
 

@@ -20,8 +20,7 @@ message2 <- function(text){
 
 setwd("/projects/b1169/boles/tdp43_neuron_fans")
 
-# NEEDS INPUT: only L2/3 ENs are tested, as before (see
-# 05_tdp43_de_mast.R).
+# Cell type to test (see 05_tdp43_de_mast.R).
 cell_type <- "L2/3 EN"
 cell_type_file <- str_replace_all(cell_type, "[ /]", "_")
 

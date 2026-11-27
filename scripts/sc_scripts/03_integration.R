@@ -24,7 +24,7 @@ setwd("/projects/b1169/boles/tdp43_neuron_fans")
 results_dir <- "results/sc_results/03_integration/"
 data_dir <- "data/sc_data/03_integration/"
 
-for (i in c(results_dir, paste0(results_dir, "pca_loadings/"), data_dir)){
+for (i in c(results_dir, data_dir)){
   dir.create(i,
              showWarnings = F,
              recursive = T)
@@ -99,17 +99,11 @@ ggsave(p,
        height = 5, width = 5,
        bg = "white")
 
-# One PNG per PC, replacing Iterate_PC_Loading_Plots(), which only writes a
-# single multi-page PDF.
-for (i in 1:50){
-  p <- PC_Plotting(obj,
-                   dim_number = i)
-  ggsave(p,
-         filename = paste0(results_dir, "pca_loadings/PC_", i, ".png"),
-         units = "in", dpi = 300,
-         height = 8, width = 6,
-         bg = "white")
-}
+# The one deliberate non-PNG output: a multi-page PDF, one page per PC.
+Iterate_PC_Loading_Plots(obj,
+                         dims_plot = 50,
+                         file_path = results_dir,
+                         file_name = "pca_loadings")
 
 message2("Computing unintegrated UMAP")
 

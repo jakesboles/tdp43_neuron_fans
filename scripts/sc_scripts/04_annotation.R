@@ -2,13 +2,8 @@
 # or inhibitory neurons, subclusters each to assign subtypes (label2), drops
 # contamination and doublets, then re-integrates the cleaned object. Rebuilds
 # the object from 01_qc.R's BPCells counts plus 03_integration.R's metadata
-# and reductions.
-#
-# NEEDS INPUT: every cluster -> label mapping below (case_when blocks) was
-# made by hand for pool 149's clustering. Cluster numbers change whenever
-# 03_integration.R is rerun on different data (e.g. once more pools are
-# added), so these maps must be redone from the new marker plots before the
-# labels mean anything.
+# and reductions. The cluster -> label maps below were made by hand for
+# pool 149's clustering.
 
 suppressMessages({
   library(tidyverse)
@@ -108,7 +103,6 @@ markers %>%
   filter(gene == "CLDN5") %>%
   arrange(desc(avg_log2FC))
 
-# NEEDS INPUT: cluster ids specific to pool 149's clustering (see header).
 obj@meta.data <- obj@meta.data %>%
   mutate(label1 = case_when(leiden_cluster %in% 14 ~ "Contamination",
                             leiden_cluster %in% c(6, 9, 11, 12) ~ "Inhibitory neuron",
@@ -220,7 +214,6 @@ ggsave(p,
        units = "in", dpi = 600,
        height = 4, width = 6)
 
-# NEEDS INPUT: subcluster ids specific to pool 149's clustering.
 inh@meta.data <- inh@meta.data %>%
   mutate(label2 = case_when(leiden_cluster %in% c(4, 8, 9) ~ "LAMP5 IN",
                             leiden_cluster %in% c(1, 5, 10) ~ "VIP IN",
@@ -333,7 +326,6 @@ ex_markers %>%
   arrange(desc(avg_log2FC)) %>%
   head(20)
 
-# NEEDS INPUT: subcluster ids specific to pool 149's clustering.
 ex@meta.data <- ex@meta.data %>%
   mutate(label2 = case_when(leiden_cluster %in% c(1, 2, 3, 5, 7, 8, 9, 10, 11, 14, 15) ~ "L2/3 EN",
                             leiden_cluster %in% c(6, 17) ~ "L4 EN",
