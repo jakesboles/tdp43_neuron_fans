@@ -194,15 +194,13 @@ meta <- obj@meta.data %>%
                           levels = c(F, T),
                           labels = c("Keep", "Discard")))
 
-# NEEDS INPUT: with levels Keep, Discard this colors kept cells red and
-# discarded cells black -- swap the two colors if that's backwards.
 discard_plot <- function(feature,
                          log = F){
   p <- meta %>%
     ggplot(aes(x = orig.ident,
                y = {{feature}})) +
     geom_quasirandom(aes(color = discard)) +
-    scale_color_manual(values = c("firebrick1", "black")) +
+    scale_color_manual(values = c("black", "firebrick1")) +
     ggtitle(deparse(substitute(feature))) +
     theme_bw() +
     theme(axis.text = element_text(color = "black"),
