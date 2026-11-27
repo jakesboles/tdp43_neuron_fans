@@ -6,8 +6,8 @@
 #SBATCH --mem=64G
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=16
-#SBATCH --account=p31535
-#SBATCH --partition=normal
+#SBATCH --account=b1042
+#SBATCH --partition=genomics
 
 # One task per sample, in sorted orig.ident order from
 # data/sc_data/01_qc/metadata.rds. The --array range must match the number
