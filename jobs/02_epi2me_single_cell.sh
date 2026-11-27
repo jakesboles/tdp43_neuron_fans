@@ -19,13 +19,17 @@
 #   sbatch --dependency=afterok:<01 job id> jobs/02_epi2me_single_cell.sh
 # or for one pool only:  sbatch --array=2 jobs/02_epi2me_single_cell.sh
 #
-# Storage:
-#   b1169 (kept):    epi2me_outs/<pool>   results
-#                    epi2me_runs/<pool>   nextflow launch dir, history, log
-#   b1042 (scratch): epi2me_work/<pool>   nextflow work dir (large, disposable)
-#                    epi2me_store/<pool>  cached reference index
-# To resume a failed pool just resubmit it; -resume works as long as the
-# b1042 work dir is still there.
+# Storage -- all workflow data on b1042, under
+# /projects/b1042/Gate_Lab/boles/tdp43_neuron_fans:
+#   epi2me_outs/<pool>   results (tagged BAMs, count matrices, reports)
+#   epi2me_runs/<pool>   nextflow launch dir (.nextflow/ history) and BAM links
+#   epi2me_work/<pool>   nextflow work dir (large, disposable)
+#   epi2me_store/<pool>  cached reference index
+# Only logs go to b1169: the SLURM log and the nextflow log
+# (logs/02_epi2me_<pool>_nextflow.log). Copy the processed objects you want
+# to keep to b1169 yourself.
+# To resume a failed pool just resubmit it; -resume needs both the launch dir
+# history and the work dir to still be there.
 #
 # NOTE: /projects/b1169/boles/tdp43_neuron_fans/logs must exist before sbatch.
 
@@ -39,7 +43,7 @@ REPO_DIR="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SAMPLE_SHEET="${REPO_DIR}/config/samples.tsv"
 POOL_SHEET="${REPO_DIR}/config/pools.tsv"
 SCRATCH_DIR="/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans"
-ANALYSIS_DIR="/projects/b1169/boles/tdp43_neuron_fans"
+LOG_DIR="/projects/b1169/boles/tdp43_neuron_fans/logs"
 BASECALL_DIR="${SCRATCH_DIR}/basecalled"
 REF_GENOME_DIR="/projects/p31535/boles/cellranger_references/refdata-gex-GRCh38-2024-A"
 WF_REVISION="v3.3.4"
@@ -70,13 +74,13 @@ if ! [[ "${CELL_NUM}" =~ ^[0-9]+$ ]]; then
 fi
 SAMPLE_NAME="JSB${POOL}"
 
-RUN_DIR="${ANALYSIS_DIR}/epi2me_runs/${POOL}"     # nextflow launch dir (.nextflow/ history lives here)
+RUN_DIR="${SCRATCH_DIR}/epi2me_runs/${POOL}"      # nextflow launch dir (.nextflow/ history lives here)
 POOL_BAM_DIR="${RUN_DIR}/bam"                     # symlinks to this pool's unaligned BAMs only
-OUTPUT_DIR="${ANALYSIS_DIR}/epi2me_outs/${POOL}"
+OUTPUT_DIR="${SCRATCH_DIR}/epi2me_outs/${POOL}"
 WORK_DIR="${SCRATCH_DIR}/epi2me_work/${POOL}"
 STORE_DIR="${SCRATCH_DIR}/epi2me_store/${POOL}"   # per pool: concurrent tasks must not write the same storeDir
 
-mkdir -p "${RUN_DIR}" "${WORK_DIR}" "${STORE_DIR}" "${OUTPUT_DIR}"
+mkdir -p "${RUN_DIR}" "${WORK_DIR}" "${STORE_DIR}" "${OUTPUT_DIR}" "${LOG_DIR}"
 
 # ---- collect this pool's BAMs ----------------------------------------------
 # wf-single-cell treats a flat directory of (u)BAMs as a single sample.
@@ -115,12 +119,13 @@ echo "Sample name      = ${SAMPLE_NAME}"
 echo "Expected cells   = ${CELL_NUM}"
 echo "Runs             = ${RUNS[*]}"
 echo "Executor limits  = ${SLURM_CPUS_ON_NODE:-32} cpus, ${MEM_GB} GB"
+echo "Launch dir       = ${RUN_DIR}"
 echo "Work dir         = ${WORK_DIR}"
 echo "Output           = ${OUTPUT_DIR}"
 
 cd "${RUN_DIR}"
 
-nextflow -log "${RUN_DIR}/nextflow.log" run epi2me-labs/wf-single-cell \
+nextflow -log "${LOG_DIR}/02_epi2me_${POOL}_nextflow.log" run epi2me-labs/wf-single-cell \
   -revision "${WF_REVISION}" \
   -profile singularity \
   -c "${RUN_DIR}/local_executor.config" \

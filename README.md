@@ -9,8 +9,8 @@ Storage on Quest:
 
 | Location | Holds |
 | --- | --- |
-| `/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans` (large, transient) | `pod5/`, `basecalled/`, Nextflow work folders |
-| `/projects/b1169/boles/tdp43_neuron_fans` (kept) | `logs/`, `epi2me_outs/`, `nf_outs/`, Nextflow launch folders |
+| `/projects/b1042/Gate_Lab/boles/tdp43_neuron_fans` (large, transient) | `pod5/`, `basecalled/`, `cellranger/`, and all epi2me data (`epi2me_outs/`, `epi2me_runs/`, `epi2me_work/`, `epi2me_store/`), `nf_work/` |
+| `/projects/b1169/boles/tdp43_neuron_fans` (kept) | `logs/` (SLURM and Nextflow logs), `nf_outs/`, processed objects you copy over |
 
 Sample sheets in this repo (submit every job **from the repo root**):
 
